@@ -1,0 +1,8 @@
+hosts: [
+  { host_ip: "10.200.198.200", host_name: "jenkins"},
+  { host_ip: "10.200.198.201", host_name: "jjb"},
+]
+
+obsolete_services:
+  - puppet
+  - chef-client

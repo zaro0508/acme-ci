@@ -1,0 +1,24 @@
+# demo using templates
+
+- job-template:
+    name: '{name}-{pyver}-{tests}-{branch}'
+    builders:
+      - shell: 'git checkout {branch}'
+    publishers:
+      - email:
+          recipients: '{mail-to}'
+
+- project:
+    name: nova
+    pyver:
+      - py26:
+         branch: stable-1.0
+      - py27:
+         branch: master
+    tests:
+      - unit:
+          mail-to: developer@nowhere.net
+      - perf:
+          mail-to: testers@nowhere.net
+    jobs:
+      - '{name}-{pyver}-{tests}-{branch}'
