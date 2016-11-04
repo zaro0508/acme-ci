@@ -3,6 +3,8 @@
 #git clone https://github.com/vfarcic/books-ms.git
 
 set -e
+sudo apt-get install -y git python-pip
+sudo pip install tox
 
 #cd books-ms
 #
