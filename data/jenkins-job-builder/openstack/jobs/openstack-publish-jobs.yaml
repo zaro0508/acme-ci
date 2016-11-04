@@ -1,0 +1,139 @@
+- job-template:
+    name: '{name}-docs-{node}'
+    node: '{node}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - zuul-release-git-prep-upper-constraints
+      - install-distro-packages
+      - revoke-sudo
+      - docs
+
+    publishers:
+      - ftp:
+          site: '{doc-publisher-site}'
+          source: 'doc/build/html/**'
+          target: 'developer/{name}'
+          remove-prefix: 'doc/build/html'
+          excludes: ''
+      - afs:
+          site: afs-docs
+          source: 'doc/build/html/**'
+          target: 'developer/{name}'
+          remove-prefix: 'doc/build/html'
+      - console-log
+
+
+- job-template:
+    name: '{name}-docs-tags-only'
+    description: Publish infra documents, use when only publish on tag
+    node: ubuntu-trusty
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - zuul-release-git-prep-upper-constraints
+      - install-distro-packages
+      - revoke-sudo
+      - docs-tags-only-env:
+          env: venv
+
+    publishers:
+      - ftp:
+          site: '{doc-publisher-site}'
+          source: 'doc/build/html/**'
+          target: 'developer/{name}'
+          remove-prefix: 'doc/build/html'
+          excludes: ''
+      - afs:
+          site: afs-docs
+          source: 'doc/build/html/**'
+          target: 'developer/{name}'
+          remove-prefix: 'doc/build/html'
+      - console-log
+
+
+# Publish releasenotes to docs.openstack.org/releasenotes/. This is
+# always published from master branch.
+- job-template:
+    name: '{name}-releasenotes'
+    node: ubuntu-xenial
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - zuul-git-branch-prep-upper-constraints:
+          branch: master
+      - install-distro-packages
+      - revoke-sudo
+      - shell: |
+          #!/bin/bash -xe
+          #
+          # When building the release notes after a patch merges we
+          # always want to build from master. Reno will find release
+          # notes on other branches and insert them into the right
+          # places in the documentation build, but only master has all
+          # of the appropriate branch-specific input files for
+          # Sphinx. The branch-git-prep builder checks out the
+          # repository where the current patch just merged, but it
+          # honors zuul configuration variables that may cause it to
+          # check out a patch merged into a stable branch. So, reset
+          # what we've checked out to master.
+          #
+          git checkout origin/master
+      - shell:
+          !include-raw-escape: include-build-releasenotes.sh
+      - add-docs-root-marker:
+          docsrootdir: releasenotes/build/html
+
+    publishers:
+      - ftp:
+          site: '{doc-publisher-site}'
+          source: 'releasenotes/build/html/**'
+          target: 'releasenotes/{name}'
+          remove-prefix: 'releasenotes/build/html'
+          excludes: ''
+      - afs:
+          site: afs-docs
+          source: 'releasenotes/build/html/**'
+          target: 'releasenotes/{name}'
+          remove-prefix: 'releasenotes/build/html'
+      - console-log
+
+
+- job-template:
+    name: 'gate-{name}-releasenotes'
+    node: ubuntu-xenial
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - zuul-git-prep-upper-constraints:
+      - install-distro-packages
+      - revoke-sudo
+      - shell:
+          !include-raw-escape: include-build-releasenotes.sh
+
+    publishers:
+      - upload-releasenotes-draft
+      - console-log
+
+- job-group:
+    name: openstack-publish-jobs
+    jobs:
+      - '{name}-docs-{node}':
+    node:
+      - ubuntu-trusty
+      - ubuntu-xenial
+
+- job-group:
+    name: openstack-client-publish-jobs
+    jobs:
+      - '{name}-docs-tags-only'
+
+- job-group:
+    name: openstack-releasenotes-jobs
+    jobs:
+      - 'gate-{name}-releasenotes'
+      - '{name}-releasenotes'

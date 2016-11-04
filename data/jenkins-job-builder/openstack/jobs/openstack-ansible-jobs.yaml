@@ -1,0 +1,20 @@
+- job-template:
+    name: 'gate-{name}-openstack-ansible-{scenario}-{node}{job-suffix}'
+    node: '{node}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 90
+      - timestamps
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - gerrit-git-prep
+      - shell: |
+          #!/bin/bash -xe
+          sudo scripts/gate-check-commit.sh "{scenario}"
+
+    publishers:
+      - devstack-logs
+      - console-log

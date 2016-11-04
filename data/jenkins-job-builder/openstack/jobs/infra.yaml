@@ -1,0 +1,462 @@
+- job:
+    name: gate-project-config-gerrit
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'gerrit'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job:
+    name: gate-project-config-irc-access
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'irc'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job:
+    name: gate-project-config-grafyaml
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'grafyaml'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job:
+    name: gate-project-config-layout
+    node: ubuntu-trusty
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'zuul'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job:
+    name: gate-project-config-jenkins-project
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'jenkins-project'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job:
+    name: gate-project-config-nodepool
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'nodepool'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job-template:
+    name: gate-{name}-bindep-fallback-{node}{job-suffix}
+
+    wrappers:
+      - timestamps
+
+    builders:
+      - net-info
+      - zuul-git-prep
+      - install-distro-packages-fallback-test
+
+    publishers:
+      - test-results
+      - console-log
+
+    node: '{node}'
+
+- job-group:
+    name: bindep-fallback-tests
+
+    job-suffix: ''
+    node:
+      - centos-7
+      - debian-jessie
+      - fedora-23
+      - ubuntu-precise
+      - ubuntu-trusty
+      - ubuntu-xenial
+
+    jobs:
+      - gate-{name}-bindep-fallback-{node}{job-suffix}
+
+- builder:
+    name: infra-puppet-apply-prep
+    builders:
+      - shell: |
+          #!/bin/bash -xe
+          /usr/zuul-env/bin/zuul-cloner --cache-dir /opt/git git://git.openstack.org openstack-infra/system-config
+
+- publisher:
+    name: infra-puppet-apply-logs
+    publishers:
+      - scp:
+          site: 'static.openstack.org'
+          files:
+            - target: 'logs/$LOG_PATH'
+              source: 'openstack-infra/system-config/applytest/**'
+              keep-hierarchy: false
+              copy-after-failure: true
+      - console-log
+
+- job-template:
+    name: 'gate-infra-puppet-apply-{node}'
+    node: '{node}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - net-info
+      - infra-puppet-apply-prep
+      - shell: |
+          #!/bin/bash -xe
+          cd openstack-infra/system-config
+          /usr/local/jenkins/slave_scripts/install-distro-packages.sh
+          ./tools/apply-test.sh
+
+    publishers:
+      - infra-puppet-apply-logs
+
+- job-template:
+    name: 'gate-logstash-filters-{node}'
+    node: '{node}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - net-info
+      - infra-puppet-apply-prep
+      - shell: |
+          #!/bin/bash -xe
+          cd openstack-infra/system-config
+          ./tools/logstash-filter-test.sh
+
+    publishers:
+      - infra-puppet-apply-logs
+
+- job-template:
+    name: 'gate-openstackci-beaker-{node}'
+    node: '{node}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - link-logs
+      - net-info
+      - pin-pip
+      - zuul-clone:
+          project: openstack-infra/puppet-openstackci
+      - puppet-prepare-node
+      - allow-local-ssh-root
+      - shell: |
+          sudo gem install bundler --no-rdoc --no-ri --verbose
+      - revoke-sudo
+      - shell: |
+          cd openstack-infra/puppet-openstackci
+          mkdir .bundled_gems
+          export GEM_HOME=`pwd`/.bundled_gems
+          bundle install
+          export BEAKER_set=nodepool-{ostype}
+          export BEAKER_debug=yes
+          export BEAKER_color=no
+          bundle exec rspec spec/acceptance
+
+    wrappers:
+      - build-timeout:
+          timeout: 60
+      - timestamps
+
+    publishers:
+      - console-log
+
+- job:
+    name: propose-project-config-update
+    node: proposal
+
+    builders:
+      - link-logs
+      - net-info
+      - branch-git-prep:
+          branch: master
+      - shell: ./tools/propose_projects_yaml_update.sh
+
+    publishers:
+      - console-log
+
+- job:
+    name: irc-meetings-publish
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'ical'
+
+    publishers:
+      - scp:
+          site: 'static.openstack.org'
+          files:
+            - target: 'logs/$LOG_PATH'
+              source: 'output/**'
+              keep-hierarchy: false
+              copy-after-failure: true
+      - scp:
+          site: 'yaml2ical'
+          files:
+            - target: ''
+              source: 'output/index.html'
+              copy-after-failure: false
+      - scp:
+          site: 'yaml2ical'
+          files:
+            - target: ''
+              source: 'output/irc-meetings.ical'
+              copy-after-failure: false
+      - scp:
+          site: 'yaml2ical'
+          files:
+            - target: 'calendars/'
+              source: 'output/calendars/*'
+              copy-after-failure: false
+      - test-results
+      - console-log
+
+- job:
+    name: gate-irc-meetings-tox-ical
+    node: ubuntu-xenial
+
+    builders:
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'ical'
+
+    publishers:
+      - postbuildscript:
+          builders:
+            - shell: |
+                #!/bin/bash -x
+                # We don't want this file to conflict with the log index
+                if test -f output/index.html; then
+                    mv output/index.html output/site-index.html
+                fi
+          # These flags really mean only if on * when
+          # checked. When both set to false the post script
+          # should run on every job regardless of status.
+          onfailure: False
+          onsuccess: False
+      - scp:
+          site: 'static.openstack.org'
+          files:
+            - target: 'logs/$LOG_PATH'
+              source: 'output/**'
+              keep-hierarchy: false
+              copy-after-failure: true
+      - test-results
+      - console-log
+
+- job:
+    name: gate-infra-ansible
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'ansible-syntax-check'
+
+    publishers:
+      - test-results
+      - console-log
+
+
+- job:
+    name: gate-project-config-dib
+    node: ubuntu-xenial
+
+    builders:
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - tox:
+          envlist: 'dib'
+
+    publishers:
+      - test-results
+      - console-log
+
+- job-template:
+    name: 'gate-puppet-openstack-infra-spec-helper-unit-{node}'
+    node: '{node}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - link-logs
+      - net-info
+      - zuul-clone:
+          project: openstack-infra/puppet-openstack_infra_spec_helper
+      - install-distro-packages
+      - puppet-prepare-node
+      - shell: |
+          #!/bin/bash -xe
+          cd openstack-infra/puppet-openstack_infra_spec_helper
+          ./run_unit_tests.sh
+
+    wrappers:
+      - build-timeout:
+          timeout: 60
+      - timestamps
+
+    publishers:
+      - console-log
+
+- job-group:
+    name: 'puppet-openstack-infra-spec-helper-jobs'
+    node:
+      - centos-7
+      - ubuntu-xenial
+      - ubuntu-trusty
+    jobs:
+      - 'gate-puppet-openstack-infra-spec-helper-unit-{node}'
+
+- job:
+    name: periodic-package-afs-centos7
+    node: centos-7
+
+    builders:
+      - net-info
+      - shell: |
+          #!/bin/bash
+          set -eux
+
+          # There are no official builds for AFS on Centos 7, hence
+          # we build our own and publish them to tarballs.openstack.org
+          # for our centos hosts that need access to the mirror to
+          # consume.
+
+          # TODO: fedora
+          YUM=${YUM:-yum}
+
+          VERSION=1.6.16
+          SRC_VERSION=${VERSION}-1
+          SRC_RPM=openafs-${SRC_VERSION}.src.rpm
+          SRC_URL=https://www.openafs.org/dl/openafs/${VERSION}/${SRC_RPM}
+
+          UPSTREAM_BASE=https://tarballs.openstack.org/package-afs-centos7
+          UPSTREAM_CHECK=${UPSTREAM_BASE}/openafs-client-${SRC_VERSION}.el7.centos.x86_64.rpm
+          if wget -O/dev/null -q $UPSTREAM_CHECK; then
+              echo "Found existing upstream RPM build, nothing to do"
+              # $WORKSPACE will just be blank, scp should just
+              # publish nothing
+              exit 0
+          fi
+
+          # some common prereqs
+          sudo yum -y groupinstall "Development Tools" "Development Libraries"
+          sudo yum -y install rpm-build kernel-devel createrepo
+
+          wget $SRC_URL
+          # install the build dependencies for the package
+          sudo yum-builddep -y ./${SRC_RPM}
+
+          # install source-rpm
+          # (this installs to ~/rpmbuild)
+          rpm -i ./${SRC_RPM}
+
+          # build everything
+          pushd ~/rpmbuild/SPECS/
+          rpmbuild -ba ./openafs.spec
+          popd
+
+          # create final repo for copying
+          createrepo ~/rpmbuild/RPMS/x86_64
+
+          # move into $WORKSPACE for copy
+          mv ~/rpmbuild/RPMS/x86_64 $WORKSPACE/package-afs-centos7
+
+    publishers:
+      - scp:
+          site: 'tarballs.openstack.org'
+          files:
+            - target: 'tarballs/'
+              source: 'package-afs-centos7/**'
+              keep-hierarchy: true
+              copy-after-failure: false
+      - console-log
+
+- job:
+    name: experimental-zuul-pep8-ubuntu-xenial
+
+    builders:
+      - zuul-git-prep-upper-constraints
+      - install-distro-packages
+      - shell: |
+          #!/bin/bash -xe
+          # Write global pip configuration minus wheel mirror.
+          awk '!/extra-index-url/' /etc/pip.conf > /tmp/pip.conf
+          sudo mv /tmp/pip.conf /etc/
+          sudo chown root:root /etc/pip.conf
+          sudo chmod 0644 /etc/pip.conf
+      - revoke-sudo
+      - pep8:
+          env: pep8
+
+    publishers:
+      - test-results
+      - console-log
+
+    node: ubuntu-xenial

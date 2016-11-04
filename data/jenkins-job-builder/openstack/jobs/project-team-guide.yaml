@@ -1,0 +1,23 @@
+- job:
+    name: 'project-team-guide-publish'
+    node: ubuntu-trusty
+
+    builders:
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - docs
+
+    publishers:
+      - ftp:
+          site: docs.openstack.org
+          source: 'doc/build/html/**'
+          target: 'project-team-guide'
+          remove-prefix: 'doc/build/html'
+          excludes: ''
+      - afs:
+          site: afs-docs
+          source: 'doc/build/html/**'
+          target: 'project-team-guide'
+          remove-prefix: 'doc/build/html'
+      - console-log

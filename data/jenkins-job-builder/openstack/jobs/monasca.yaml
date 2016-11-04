@@ -1,0 +1,186 @@
+- job-template:
+    name: 'gate-tempest-dsvm-monasca-python-full{job-suffix}'
+
+    node: ubuntu-trusty
+
+    wrappers:
+      - build-timeout:
+          timeout: 130
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_NEUTRON=0
+          export ENABLED_SERVICES=tempest
+          export DEVSTACK_LOCAL_CONFIG="enable_plugin monasca-api git://git.openstack.org/openstack/monasca-api"
+          export PROJECTS="openstack/monasca-api $PROJECTS"
+          export PROJECTS="openstack/monasca-persister $PROJECTS"
+          export PROJECTS="openstack/monasca-common $PROJECTS"
+          export PROJECTS="openstack/monasca-agent $PROJECTS"
+          export PROJECTS="openstack/monasca-notification $PROJECTS"
+          export PROJECTS="openstack/monasca-thresh $PROJECTS"
+          export PROJECTS="openstack/monasca-statsd $PROJECTS"
+          export PROJECTS="openstack/python-monascaclient $PROJECTS"
+          export PROJECTS="openstack/monasca-grafana-datasource $PROJECTS"
+          export PROJECTS="openstack/monasca-ui $PROJECTS"
+
+          function pre_test_hook {{
+              source $BASE/new/monasca-api/devstack/pre_test_hook.sh
+          }}
+          export -f pre_test_hook
+
+          function post_test_hook {{
+              # Configure and run tempest on monasca-api installation
+              source $BASE/new/monasca-api/devstack/post_test_hook.sh
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - devstack-logs
+      - console-log
+
+- job-template:
+    name: 'gate-tempest-dsvm-monasca-java-full{job-suffix}'
+    node: ubuntu-trusty
+
+    wrappers:
+      - build-timeout:
+          timeout: 130
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_NEUTRON=0
+          export ENABLED_SERVICES=tempest
+          export DEVSTACK_LOCAL_CONFIG="enable_plugin monasca-api git://git.openstack.org/openstack/monasca-api"
+          export PROJECTS="openstack/monasca-api $PROJECTS"
+          export PROJECTS="openstack/monasca-persister $PROJECTS"
+          export PROJECTS="openstack/monasca-common $PROJECTS"
+          export PROJECTS="openstack/monasca-agent $PROJECTS"
+          export PROJECTS="openstack/monasca-notification $PROJECTS"
+          export PROJECTS="openstack/monasca-thresh $PROJECTS"
+          export PROJECTS="openstack/monasca-statsd $PROJECTS"
+          export PROJECTS="openstack/python-monascaclient $PROJECTS"
+          export PROJECTS="openstack/monasca-grafana-datasource $PROJECTS"
+          export PROJECTS="openstack/monasca-ui $PROJECTS"
+
+          export DEVSTACK_LOCAL_CONFIG+=$'\n'"MONASCA_API_IMPLEMENTATION_LANG=java"
+          export DEVSTACK_LOCAL_CONFIG+=$'\n'"MONASCA_PERSISTER_IMPLEMENTATION_LANG=java"
+
+          function pre_test_hook {{
+              source $BASE/new/monasca-api/devstack/pre_test_hook.sh
+          }}
+          export -f pre_test_hook
+
+          function post_test_hook {{
+              # Configure and run tempest on monasca-api installation
+              source $BASE/new/monasca-api/devstack/post_test_hook.sh
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - devstack-logs
+      - console-log
+
+- job-group:
+    name: 'tempest-monasca-full-jobs'
+    jobs:
+      - 'gate-tempest-dsvm-monasca-python-full{job-suffix}':
+          job-suffix: ''
+      - 'gate-tempest-dsvm-monasca-python-full{job-suffix}':
+          job-suffix: '-nv'
+      - 'gate-tempest-dsvm-monasca-java-full{job-suffix}':
+          job-suffix: ''
+      - 'gate-tempest-dsvm-monasca-java-full{job-suffix}':
+          job-suffix: '-nv'
+
+- job-template:
+    name: 'gate-tempest-dsvm-monasca-log-api-{node}{suffix}'
+    node: '{node}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 130
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_NEUTRON=0
+          export OVERRIDE_ENABLED_SERVICES=key,mysql,rabbit,tempest,dstat
+          DEVSTACK_LOCAL_CONFIG="enable_plugin monasca-api git://git.openstack.org/openstack/monasca-api"
+          DEVSTACK_LOCAL_CONFIG+=$'\n'"enable_plugin monasca-log-api git://git.openstack.org/openstack/monasca-log-api"
+          export DEVSTACK_LOCAL_CONFIG
+          PROJECTS="openstack/monasca-api $PROJECTS"
+          export PROJECTS="openstack/monasca-log-api $PROJECTS"
+
+          function pre_test_hook {{
+              source $BASE/new/monasca-log-api/devstack/pre_test_hook.sh
+          }}
+          export -f pre_test_hook
+
+          function post_test_hook {{
+              # Configure and run tempest on monasca-log-api installation
+              source $BASE/new/monasca-log-api/devstack/post_test_hook.sh
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - devstack-logs
+      - console-log
+
+- job:
+    name: gate-monasca-analytics-py27
+
+    node: ubuntu-trusty
+
+    wrappers:
+      - build-timeout:
+          timeout: 130
+      - timestamps
+
+    builders:
+      - zuul-git-prep-upper-constraints
+      - install-distro-packages
+      - shell: |
+          #!/bin/bash -xe
+          HOME=${HOME:-/home/jenkins}
+          SPARK_DIR=$HOME/spark
+          SPARK_VERSION=${SPARK_VERSION:-1.6.1}
+          SPARK_TARBALL_NAME=spark-$SPARK_VERSION.tgz
+          SPARK_URL=http://apache.claz.org/spark/spark-$SPARK_VERSION/$SPARK_TARBALL_NAME
+
+          mkdir -p $SPARK_DIR
+          curl $SPARK_URL -o $SPARK_DIR/$SPARK_TARBALL_NAME
+          tar -xzf $SPARK_DIR/$SPARK_TARBALL_NAME -C $SPARK_DIR
+
+      - revoke-sudo
+      - python27
+      - assert-no-extra-files
+
+    publishers:
+      - test-results
+      - console-log

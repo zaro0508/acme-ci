@@ -1,0 +1,6 @@
+# a simple job
+- job:
+    name: foo
+    node: centos
+    builders:
+      - shell: 'sleep 10'

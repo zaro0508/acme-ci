@@ -1,0 +1,15 @@
+- job:
+    name: 'gate-storlets-functional'
+    node: ubuntu-trusty
+
+    builders:
+      - gerrit-git-prep
+      - install-distro-packages
+      - shell: |
+          #!/bin/bash -xe
+          tests/setup_functional_test.sh
+          tox -e func
+
+    publishers:
+      - test-results
+      - console-log

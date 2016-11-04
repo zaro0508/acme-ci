@@ -1,0 +1,65 @@
+- job-template:
+    name: '{pipeline}-senlin-dsvm-tempest-{test_type}{job-suffix}'
+    node: '{node}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 130
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export BRANCH_OVERRIDE={branch-override}
+          export PROJECTS="openstack/senlin $PROJECTS"
+          export DEVSTACK_GATE_TEMPEST=1
+          export DEVSTACK_GATE_TEMPEST_ALL_PLUGINS=1
+          export DEVSTACK_GATE_TEMPEST_REGEX="senlin.tests.tempest.{test_type}"
+
+          export DEVSTACK_LOCAL_CONFIG="enable_plugin senlin https://git.openstack.org/openstack/senlin"
+
+          if [ "{test_type}" == "api" ]||[ "{test_type}" == "functional" ];then
+            export SENLIN_BACKEND="openstack_test"
+          else
+            export SENLIN_BACKEND="openstack"
+            ENABLED_SERVICES=heat,h-api,h-api-cfn,h-api-cw,h-eng,
+            ENABLED_SERVICES+=q-agt,q-dhcp,q-l3,q-meta,q-metering,q-svc,
+            # Enable LBaaS V2 plugin
+            export DEVSTACK_GATE_NEUTRON=1
+            ENABLED_SERVICES+=q-lbaasv2,
+            export PROJECTS="openstack/neutron-lbaas $PROJECTS"
+            export DEVSTACK_LOCAL_CONFIG+=$'\n'"enable_plugin neutron-lbaas https://git.openstack.org/openstack/neutron-lbaas"
+            # Enable Zaqar
+            export PROJECTS="openstack/zaqar $PROJECTS"
+            export PROJECTS="openstack/python-zaqarclient $PROJECTS"
+            export DEVSTACK_LOCAL_CONFIG+=$'\n'"enable_plugin zaqar git://git.openstack.org/openstack/zaqar"
+            export ENABLED_SERVICES
+          fi
+
+          if [ "$BRANCH_OVERRIDE" != "default" ] ; then
+              export OVERRIDE_ZUUL_BRANCH=$BRANCH_OVERRIDE
+          fi
+
+          function pre_test_hook {{
+              cd /opt/stack/new/senlin/senlin/tests/tempest/
+              ./pre_test_hook.sh
+          }}
+          export -f pre_test_hook
+
+          function post_test_hook {{
+              cd /opt/stack/new/senlin/senlin/tests/tempest/
+              ./post_test_hook.sh
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - test-results
+      - devstack-logs
+      - console-log

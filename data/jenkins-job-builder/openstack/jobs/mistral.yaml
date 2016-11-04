@@ -1,0 +1,62 @@
+- job-template:
+    name: '{pipeline}-{component}-devstack-dsvm'
+    node: '{node}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 70
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_NEUTRON=1
+
+          if [ "{component}" = "python-mistralclient" ] ; then
+              export DEVSTACK_PROJECT_FROM_GIT="python-mistralclient"
+          fi
+
+          export ENABLED_SERVICES=h-api,h-api-cfn,h-api-cw,h-eng,heat,tempest
+          export PROJECTS="openstack/mistral $PROJECTS"
+          export PROJECTS="openstack/mistral-dashboard $PROJECTS"
+          export PROJECTS="openstack/python-mistralclient $PROJECTS"
+          export DEVSTACK_LOCAL_CONFIG="enable_plugin mistral https://git.openstack.org/openstack/mistral"
+
+          function post_test_hook {{
+              cd /opt/stack/new/{component}/functionaltests
+              ./post_test_hook.sh
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - devstack-logs
+      - console-log
+
+- job:
+    name: 'gate-mistral-docker-buildimage'
+    node: ubuntu-trusty
+
+    builders:
+      - link-logs
+      - net-info
+      - gerrit-git-prep
+      - install-distro-packages
+      - shell: |
+         ./docker_image_build.sh
+
+    publishers:
+      - scp:
+          site: 'tarballs.openstack.org'
+          files:
+            - source: 'mistral-docker.tar.gz'
+              target: 'tarballs/mistral/images'
+              keep-hierarchy: false
+              copy-after-failure: false
+      - console-log

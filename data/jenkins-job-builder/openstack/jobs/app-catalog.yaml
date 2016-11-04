@@ -1,0 +1,70 @@
+- job:
+    name: propose-app-catalog-update
+    node: proposal
+
+    builders:
+      - proposal-slave-cleanup
+      - link-logs
+      - branch-git-prep:
+          branch: master
+      - shell: /usr/local/jenkins/slave_scripts/propose_app_catalog_update.sh
+
+    publishers:
+      - console-log
+
+
+- job:
+    name: gate-app-catalog-ui-dsvm-integration
+    node: ubuntu-trusty
+
+    wrappers:
+      - build-timeout:
+          timeout: 60
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - firefox-install
+      - xvfb-install
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_TEMPEST=0
+          export DEVSTACK_GATE_EXERCISES=0
+          export DEVSTACK_GATE_INSTALL_TESTONLY=1
+          export DEVSTACK_GATE_NEUTRON=1
+
+          # Enable App Catalog Horizon plugin
+          export PROJECTS="openstack/app-catalog-ui $PROJECTS"
+          export DEVSTACK_LOCAL_CONFIG="enable_plugin app-catalog-ui https://git.openstack.org/openstack/app-catalog-ui"
+
+          function pre_test_hook {
+              $BASE/new/app-catalog-ui/tools/gate/integration/pre_test_hook.sh
+          }
+          export -f pre_test_hook
+
+          function post_test_hook {
+              $BASE/new/app-catalog-ui/tools/gate/integration/post_test_hook.sh
+          }
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - test-results
+      - devstack-logs
+      - publish-screenshots
+      - console-log
+
+- publisher:
+    name: publish-screenshots
+    publishers:
+      - scp:
+          site: 'static.openstack.org'
+          files:
+            - target: 'logs/$LOG_PATH/screenshots'
+              source: 'integration_tests_screenshots/**'
+              copy-after-failure: true

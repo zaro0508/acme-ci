@@ -1,0 +1,19 @@
+- job-template:
+    name: 'gate-ara-integration-{ansible_version}-{ostype}'
+    node: '{ostype}'
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - link-logs
+      - gerrit-git-prep
+      - install-distro-packages
+      - shell: |
+          #!/bin/bash -xe
+          ./run_tests.sh ansible=={ansible_version}
+    wrappers:
+      - build-timeout:
+          timeout: 20
+      - timestamps
+    publishers:
+      - devstack-logs
+      - console-log

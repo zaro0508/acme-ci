@@ -25,8 +25,9 @@ Vagrant.configure(2) do |config|
     d.vm.provision :shell, path: "scripts/bootstrap_ansible.sh"
     d.vm.provision :shell, inline: "PYTHONUNBUFFERED=1 ansible-playbook /vagrant/ansible/dev.yml -c local"
     d.vm.provision :shell, path: "scripts/preload_dev.sh"
+    d.vm.provision :shell, path: "scripts/preload_jjb.sh"
     d.vm.provider "virtualbox" do |v|
-      v.memory = 512
+      v.memory = 2048
     end
   end
   if Vagrant.has_plugin?("vagrant-cachier")

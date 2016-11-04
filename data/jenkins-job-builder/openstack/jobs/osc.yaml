@@ -1,0 +1,66 @@
+- job-template:
+    name: '{pipeline}-osc-dsvm-functional{job-suffix}'
+    node: '{node}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 130
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_UNSTACK=0
+          export DEVSTACK_GATE_TEMPEST=0
+          export DEVSTACK_GATE_EXERCISES=0
+          export DEVSTACK_GATE_INSTALL_TESTONLY=1
+          export DEVSTACK_GATE_NEUTRON=1
+          export BRANCH_OVERRIDE={branch-override}
+          export PROJECTS="openstack/python-openstackclient $PROJECTS"
+          export DEVSTACK_PROJECT_FROM_GIT=python-openstackclient
+          if [ "$BRANCH_OVERRIDE" != "default" ] ; then
+              export OVERRIDE_ZUUL_BRANCH=$BRANCH_OVERRIDE
+          fi
+          export DEVSTACK_LOCAL_CONFIG="enable_plugin neutron https://git.openstack.org/openstack/neutron"
+          export ENABLED_SERVICES=q-qos
+
+          # NOTE(stevemar): After the newton release was tagged the file was moved.
+          # But, we run functional tests for various stable releases (liberty,
+          # mitaka, and newton).
+          # TODO(stevemar): Remove this check when Newton is EOL'ed.
+          hook_location=$BASE/new/python-openstackclient/openstackclient/tests/functional/post_test_hook.sh
+          if [ ! -f "$hook_location" ]; then
+            hook_location=$BASE/new/python-openstackclient/openstackclient/post_test_hook.sh
+          fi
+
+          function post_test_hook {{
+              bash -xe $hook_location
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - test-results
+      - devstack-logs
+      - console-log
+
+- job:
+    name: check-osc-plugins
+    node: ubuntu-trusty
+
+    builders:
+      - gerrit-git-prep
+      - install-distro-packages
+      - revoke-sudo
+      - link-logs
+      - net-info
+      - shell: /usr/local/jenkins/slave_scripts/check-osc-plugins.sh
+
+    publishers:
+      - console-log

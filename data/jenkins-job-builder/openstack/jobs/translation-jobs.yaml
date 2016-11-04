@@ -1,0 +1,97 @@
+- job-template:
+    name: '{name}-upstream-translation-update'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - proposal-slave-cleanup
+      - revoke-sudo
+      - zuul-git-prep-upper-constraints
+      - shell: |
+          #!/bin/bash -xe
+          /usr/local/jenkins/slave_scripts/upstream_translation_update.sh {name} {template-name}
+
+    publishers:
+      - scp:
+          site: 'tarballs.openstack.org'
+          files:
+            - source: 'translation-source/**/*.pot'
+              target: 'tarballs/'
+              keep-hierarchy: true
+      - scp:
+          site: 'static.openstack.org'
+          files:
+            - target: 'logs/$LOG_PATH'
+              source: 'testrepository.subunit.gz'
+              keep-hierarchy: false
+              copy-after-failure: true
+      - test-results
+      - console-log
+
+    node: 'proposal'
+
+- job-template:
+    name: '{name}-propose-translation-update{suffix}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - proposal-slave-cleanup
+      - revoke-sudo
+      # TODO(jaegerandi): We cannot use zuul-cloner here since
+      # zuul-merge in a periodic job might not have the latest changes.
+      - branch-git-prep:
+          branch: '{branch}'
+      - constraints-branch-git-prep:
+          branch: '{branch}'
+      - shell: |
+          #!/bin/bash -xe
+          /usr/local/jenkins/slave_scripts/propose_translation_update.sh {name} {branch} {template-name}
+
+    publishers:
+      - scp:
+          site: 'static.openstack.org'
+          files:
+            - target: 'logs/$LOG_PATH'
+              source: 'testrepository.subunit.gz'
+              keep-hierarchy: false
+              copy-after-failure: true
+      - test-results
+      - console-log
+
+    node: 'proposal'
+
+- job-group:
+    name: translation-jobs
+    suffix: ''
+    branch: master
+    jobs:
+      - '{name}-upstream-translation-update'
+      - '{name}-propose-translation-update{suffix}'
+
+- job-group:
+    name: translation-jobs-mitaka
+    suffix: '-mitaka'
+    branch: stable/mitaka
+    jobs:
+      - '{name}-propose-translation-update{suffix}'
+
+- job-group:
+    name: translation-jobs-newton
+    suffix: '-newton'
+    branch: stable/newton
+    jobs:
+      - '{name}-propose-translation-update{suffix}'
+
+- job-group:
+    name: manual-translation-jobs
+    suffix: ''
+    branch: master
+    jobs:
+      - '{name}-upstream-translation-update'
+      - '{name}-propose-translation-update{suffix}'
+      - 'gate-{name}-tox-{envlist}-{node}':
+          envlist: checklang
+          node: ubuntu-xenial
+      - '{name}-tox-doc-{envlist}':
+          envlist: publishlang

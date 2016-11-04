@@ -1,0 +1,203 @@
+- builder:
+    name: tripleo-quickstart-checkout
+    builders:
+      - shell: |
+          #!/bin/bash -xe
+          CLONEMAP=`mktemp`
+          function cleanup {
+              rm -f $CLONEMAP
+          }
+          trap cleanup EXIT
+          cat > $CLONEMAP << EOF
+          clonemap:
+            - name: openstack/tripleo-quickstart
+              dest: .
+          EOF
+          /usr/zuul-env/bin/zuul-cloner -m $CLONEMAP --cache-dir /opt/git \
+              git://git.openstack.org openstack/tripleo-quickstart
+
+- builder:
+    name: python-tripleoclient-buildimage-checkout
+    builders:
+      - shell: |
+          #!/bin/bash -xe
+          CLONEMAP=`mktemp`
+          function cleanup {
+              rm -f $CLONEMAP
+          }
+          trap cleanup EXIT
+          cat > $CLONEMAP << EOF
+          clonemap:
+            - name: 'openstack/(.*)'
+              dest: '\1'
+          EOF
+          /usr/zuul-env/bin/zuul-cloner -m $CLONEMAP \
+            --cache-dir /opt/git \
+            git://git.openstack.org \
+            openstack/heat-templates \
+            openstack/instack-undercloud \
+            openstack/python-tripleoclient \
+            openstack/tripleo-image-elements \
+            openstack/tripleo-puppet-elements
+
+- job-template:
+    name: '{pipeline}-tripleo-quickstart-{scenario}-{node}{job-suffix}'
+    node: '{node}'
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - tripleo-quickstart-checkout
+      - install-distro-packages
+      - shell: |
+          # Allow Jenkins user to ssh into localhost
+          ssh-keygen -f ~/.ssh/id_rsa -N ""
+          cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+          ssh-keyscan localhost >> ~/.ssh/known_hosts
+          ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+      - tox:
+          envlist: "{scenario}"
+
+    publishers:
+      - console-log
+
+- job-template:
+    name: 'gate-tripleo-buildimage-{image-name}-{node}{suffix}'
+    node: '{node}'
+
+    builders:
+      - link-logs
+      - net-info
+      - python-tripleoclient-buildimage-checkout
+      - shell: |
+          #!/bin/bash -xe
+          cd python-tripleoclient
+          /usr/local/jenkins/slave_scripts/install-distro-packages.sh
+      - shell: |
+          #!/bin/bash -xe
+          cd python-tripleoclient
+          ELEMENTS="$WORKSPACE/instack-undercloud/elements:"
+          ELEMENTS+="$WORKSPACE/tripleo-puppet-elements/elements:"
+          ELEMENTS+="$WORKSPACE/tripleo-image-elements/elements:"
+          ELEMENTS+="$WORKSPACE/heat-templates/hot/software-config/elements"
+
+          # Basic Deployment (CLI)
+          # http://docs.openstack.org/developer/tripleo-docs/basic_deployment/basic_deployment_cli.html
+          export USE_DELOREAN_TRUNK=1
+          export DELOREAN_REPO_FILE="delorean.repo"
+
+          if [ "$ZUUL_BRANCH" == "stable/liberty" ]; then
+              export DELOREAN_TRUNK_REPO="http://trunk.rdoproject.org/centos7-liberty/current/"
+          elif [ "$ZUUL_BRANCH" == "stable/mitaka" ]; then
+              export DELOREAN_TRUNK_REPO="http://trunk.rdoproject.org/centos7-mitaka/current/"
+          else
+              export DELOREAN_TRUNK_REPO="http://buildlogs.centos.org/centos/7/cloud/x86_64/rdo-trunk-master-tripleo/"
+          fi
+
+          tox -evenv -- pip install diskimage-builder
+          tox -evenv -- openstack overcloud image build --type {image-name} --elements-path="$ELEMENTS"
+
+          mkdir -p $WORKSPACE/logs
+          mv *.log $WORKSPACE/logs
+
+    publishers:
+      - test-results
+      - devstack-logs
+      - console-log
+
+- job-template:
+    name: '{trigger}-tripleo-ci-{jobname}{suffix}'
+    node: '{node}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 180
+      - timestamps
+
+    builders:
+      - link-logs
+      - net-info
+      - devstack-checkout
+      - shell: |
+          #!/bin/bash -xe
+          export TOCI_JOBTYPE={type}
+
+          # ZUUL Doesn't set these for periodic jobs
+          export ZUUL_BRANCH=${{ZUUL_BRANCH:-master}}
+          export ZUUL_REF=${{ZUUL_REF:-None}}
+
+          export BRANCH_OVERRIDE={branch-override}
+          if [ "$BRANCH_OVERRIDE" != "default" ] ; then
+              export OVERRIDE_ZUUL_BRANCH=$BRANCH_OVERRIDE
+          fi
+
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_TEMPEST=0
+          export DEVSTACK_GATE_EXERCISES=0
+
+          export PROJECTS="openstack/instack $PROJECTS"
+          export PROJECTS="openstack/instack-undercloud $PROJECTS"
+          export PROJECTS="openstack/puppet-aodh $PROJECTS"
+          export PROJECTS="openstack/puppet-barbican $PROJECTS"
+          export PROJECTS="openstack/puppet-ceilometer $PROJECTS"
+          export PROJECTS="openstack/puppet-ceph $PROJECTS"
+          export PROJECTS="openstack/puppet-cinder $PROJECTS"
+          export PROJECTS="openstack/puppet-glance $PROJECTS"
+          export PROJECTS="openstack/puppet-gnocchi $PROJECTS"
+          export PROJECTS="openstack/puppet-heat $PROJECTS"
+          export PROJECTS="openstack/puppet-horizon $PROJECTS"
+          export PROJECTS="openstack/puppet-ironic $PROJECTS"
+          export PROJECTS="openstack/puppet-keystone $PROJECTS"
+          export PROJECTS="openstack/puppet-mistral $PROJECTS"
+          export PROJECTS="openstack/puppet-neutron $PROJECTS"
+          export PROJECTS="openstack/puppet-nova $PROJECTS"
+          export PROJECTS="openstack/puppet-openstack_extras $PROJECTS"
+          export PROJECTS="openstack/puppet-openstacklib $PROJECTS"
+          export PROJECTS="openstack/puppet-oslo $PROJECTS"
+          export PROJECTS="openstack/puppet-pacemaker $PROJECTS"
+          export PROJECTS="openstack/puppet-sahara $PROJECTS"
+          export PROJECTS="openstack/puppet-swift $PROJECTS"
+          export PROJECTS="openstack/puppet-tripleo $PROJECTS"
+          export PROJECTS="openstack/puppet-vswitch $PROJECTS"
+          export PROJECTS="openstack/puppet-zaqar $PROJECTS"
+          export PROJECTS="openstack/python-ironic-inspector-client $PROJECTS"
+          export PROJECTS="openstack/python-tripleoclient $PROJECTS"
+          export PROJECTS="openstack/tripleo-common $PROJECTS"
+          export PROJECTS="openstack/tripleo-puppet-elements $PROJECTS"
+
+          # some projects are not in devstack-gate, we need them to grab logs:
+          export PROJECTS="openstack/aodh $PROJECTS"
+          export PROJECTS="openstack/barbican $PROJECTS"
+          export PROJECTS="openstack/gnocchi $PROJECTS"
+          export PROJECTS="openstack/panko $PROJECTS"
+          export PROJECTS="openstack/mistral $PROJECTS"
+
+          sudo chown -hR $(whoami) /opt/git
+          function gate_hook {{
+              bash -xe /opt/stack/new/tripleo-ci/toci_gate_test.sh
+          }}
+          export -f gate_hook
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - scp:
+          site: 'tarballs.openstack.org'
+          files:
+            - source: 'images/*'
+              target: 'tarballs/tripleo-ci/images/'
+              keep-hierarchy: false
+              copy-after-failure: false
+      - devstack-logs
+      - console-log
+
+- job-group:
+    name: 'tripleo-quickstart-jobs'
+    jobs:
+      - '{pipeline}-tripleo-quickstart-{scenario}-{node}{job-suffix}':
+          job-suffix: '-nv'
+          node:
+            - centos-7
+          pipeline: gate
+          scenario:
+            - base

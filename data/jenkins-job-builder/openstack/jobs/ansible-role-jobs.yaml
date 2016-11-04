@@ -1,0 +1,154 @@
+- job-template:
+    name: 'gate-{name}-ansible-lint'
+    node: 'ubuntu-trusty'
+
+    builders:
+      - gerrit-git-prep
+      - install-distro-packages
+      - ansible-prep
+      - ansible-lint-prep
+      - revoke-sudo
+      - ansible-syntax
+      - ansible-lint
+
+    publishers:
+      - console-log
+
+- job-group:
+    # TODO(pabelanger): Remove in favor of ansible-role-jobs
+    name: 'ansible-lint-jobs'
+    jobs:
+      - 'gate-{name}-ansible-lint'
+
+- job-template:
+    name: '{pipeline}-{name}-dsvm-ansible-func-{ostype}{job-suffix}'
+    node: '{ostype}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 100
+      - timestamps
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - zuul-git-prep
+      - devstack-checkout
+      - shell: |
+          # Allow Jenkins user to ssh into localhost
+          ssh-keygen -f ~/.ssh/id_rsa -N ""
+          cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+          ssh-keyscan localhost >> ~/.ssh/known_hosts
+          ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+      - shell: |
+          #!/bin/bash -xe
+          export PYTHONUNBUFFERED=true
+          export DEVSTACK_GATE_NEUTRON=1
+          export PROJECTS="$ZUUL_PROJECT $PROJECTS"
+
+          export BRANCH_OVERRIDE={branch-override}
+          if [ "$BRANCH_OVERRIDE" != "default" ] ; then
+              export OVERRIDE_ZUUL_BRANCH=$BRANCH_OVERRIDE
+          fi
+
+          function post_test_hook {{
+              $BASE/new/{name}/tests/hooks/post_test_hook.sh
+          }}
+          export -f post_test_hook
+
+          cp devstack-gate/devstack-vm-gate-wrap.sh ./safe-devstack-vm-gate-wrap.sh
+          ./safe-devstack-vm-gate-wrap.sh
+
+    publishers:
+      - devstack-logs
+      - console-log
+
+- job-template:
+    name: '{pipeline}-{name}-ansible-{scenario}-{ostype}{job-suffix}'
+    node: '{ostype}'
+
+    wrappers:
+      - build-timeout:
+          timeout: 60
+      - timestamps
+
+    builders:
+      - print-template-name:
+          template-name: "{template-name}"
+      - zuul-git-prep-upper-constraints
+      - install-distro-packages
+      - shell: |
+          # Allow Jenkins user to ssh into localhost
+          ssh-keygen -f ~/.ssh/id_rsa -N ""
+          cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+          ssh-keyscan localhost >> ~/.ssh/known_hosts
+          ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+      - shell: |
+          # Many of the Ansible roles have a tox environment
+          # called 'functional', so we implement a mapping
+          # of the scenario 'func' to 'functional' so reduce
+          # the need for code churn in those repositories
+          # immediately.
+          if [ "{scenario}" == "func" ]; then
+            /usr/local/jenkins/slave_scripts/run-tox.sh functional
+          else
+            /usr/local/jenkins/slave_scripts/run-tox.sh {scenario}
+          fi
+
+    publishers:
+      # Although these aren't devstack jobs, we want to capture logs
+      # similar in nature to devstack (Ansible logs, system logs, etc.)
+      - devstack-logs
+      - console-log
+
+- job-group:
+    name: 'ansible-role-jobs'
+    node:
+      - ubuntu-trusty
+      - ubuntu-xenial
+    jobs:
+      - 'gate-{name}-docs-{node}'
+      - 'gate-{name}-linters-{node}'
+      - '{pipeline}-{name}-ansible-{scenario}-{ostype}{job-suffix}':
+          job-suffix: '-nv'
+          ostype:
+            - centos-7
+            - ubuntu-trusty
+            - ubuntu-xenial
+          pipeline: gate
+          scenario: func
+      - '{pipeline}-{name}-ansible-{scenario}-{ostype}{job-suffix}':
+          job-suffix: ''
+          ostype:
+            - centos-7
+            - ubuntu-trusty
+            - ubuntu-xenial
+          pipeline: gate
+          scenario: func
+      - '{name}-announce-release'
+
+- job-group:
+    name: 'ansible-role-dsvm-jobs'
+    node:
+      - ubuntu-trusty
+      - ubuntu-xenial
+    jobs:
+      - 'gate-{name}-docs-{node}'
+      - 'gate-{name}-linters-{node}'
+      - '{pipeline}-{name}-dsvm-ansible-func-{ostype}{job-suffix}':
+          job-suffix: '-nv'
+          branch-override: default
+          ostype:
+            - centos-7
+            - ubuntu-trusty
+            - ubuntu-xenial
+          pipeline: gate
+      - '{pipeline}-{name}-dsvm-ansible-func-{ostype}{job-suffix}':
+          job-suffix: ''
+          branch-override: default
+          ostype:
+            - centos-7
+            - ubuntu-trusty
+            - ubuntu-xenial
+          pipeline: gate
+      - '{name}-announce-release'

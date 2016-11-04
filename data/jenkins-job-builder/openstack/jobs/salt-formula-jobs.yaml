@@ -1,0 +1,17 @@
+
+- job-template:
+    name: 'gate-{name}-salt-lint'
+    node: ubuntu-trusty
+
+    builders:
+      - gerrit-git-prep
+      - install-distro-packages
+      - salt-formula-test
+
+    publishers:
+      - console-log
+
+- job-group:
+    name: 'salt-formula-jobs'
+    jobs:
+      - 'gate-{name}-salt-lint'
